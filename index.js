@@ -9,10 +9,18 @@ const {
   OrderValidityEnum
 } = require("./const");
 const { encrypt } = require("./utils");
+const AsyncRedis = require("./asyncRedis").default;
 
 axiosCookieJarSupport(axios);
 
-const cookieJar = new tough.CookieJar();
+let cookieJar;
+AsyncRedis.getAsync('redis-cookie').then((redisCookie) => {
+  if (!redisCookie) {
+    cookieJar = new tough.CookieJar();
+  } else {
+    cookieJar = tough.CookieJar.fromJSON(redisCookie);
+  }
+});
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 
@@ -153,7 +161,11 @@ function FivePaisaClient(conf) {
     this.loginPayload.body.Email_id = encrypt(encryptionKey, email);
     this.loginPayload.body.Password = encrypt(encryptionKey, password);
     this.loginPayload.body.My2PIN = encrypt(encryptionKey, DOB);
-    var req = request_instance.post(LOGIN_ROUTE, loginPayload);
+    var req = request_instance.post(LOGIN_ROUTE, loginPayload)
+              .then((response) => {
+                AsyncRedis.setAsync('redis-cookie', JSON.stringify(cookieJar.serializeSync())).catch(console.log);
+                return response;
+              } );
     return req;
   };
 
@@ -178,6 +190,7 @@ function FivePaisaClient(conf) {
         if (response.data.body.Data.length === 0) {
           reject(response.data.body.Message);
         } else {
+          AsyncRedis.setAsync('redis-cookie', JSON.stringify(cookieJar.serializeSync()));
           resolve(response.data.body.Data);
         }
       });
